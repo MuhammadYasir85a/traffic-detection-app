@@ -1,202 +1,188 @@
+//StartDetection.tsx code
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, ActivityIndicator, ScrollView } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 
 export default function StartDetection() {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [isDetecting, setIsDetecting] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState<any>(null);
+  const [resultImage, setResultImage] = useState<string | null>(null);
+  const [counts, setCounts] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
-  const [filters, setFilters] = useState<{
-    Car: boolean;
-    Truck: boolean;
-    Motorbike: boolean;
-  }>({
-    Car: true,
-    Truck: true,
-    Motorbike: true,
-  });
+  const BACKEND_URL = "http://192.168.10.7:5000"; // Replace YOUR_IP with your local IP (e.g., 192.168.1.100)
 
-  const toggleFilter = (vehicle: 'Car' | 'Truck' | 'Motorbike') => {
-    setFilters((prev) => ({
-      ...prev,
-      [vehicle]: !prev[vehicle],
-    }));
+  const pickMedia = async (type: 'image' | 'video') => {
+    let result;
+    if (type === 'image') {
+      result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
+        base64: false,
+      });
+    } else {
+      result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      });
+    }
+
+    if (!result.canceled) {
+      setSelectedMedia(result.assets[0]);
+      setResultImage(null);
+      setCounts(null);
+    }
   };
 
-  const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 1,
-    });
+  const sendToBackend = async () => {
+    if (!selectedMedia) return;
 
-    if (!result.canceled && result.assets.length > 0) {
-      setSelectedImage(result.assets[0].uri);
+    setLoading(true);
+    const uri = selectedMedia.uri;
+    const fileType = uri.endsWith('.mp4') ? 'video' : 'image';
+    const endpoint = fileType === 'image' ? '/detect-image' : '/detect-video';
+    const apiUrl = `${BACKEND_URL}${endpoint}`;
+
+    const fileInfo = await FileSystem.getInfoAsync(uri);
+    const fileData = {
+      uri,
+      type: fileType === 'image' ? 'image/jpeg' : 'video/mp4',
+      name: fileType === 'image' ? 'image.jpg' : 'video.mp4',
+    };
+
+    const formData = new FormData();
+    formData.append('media', fileData as any);
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        body: formData,
+      });
+
+      const json = await response.json();
+      if (json.processed_image) {
+        setResultImage(`data:image/jpeg;base64,${json.processed_image}`);
+        setCounts(json.count_by_type);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error connecting to backend.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContainer}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Start Detection</Text>
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.title}>Start Detection</Text>
 
-        <TouchableOpacity style={styles.button} onPress={pickImage}>
-          <Text style={styles.buttonText}>📷 Upload Image</Text>
+      <View style={styles.buttonRow}>
+        <TouchableOpacity style={styles.button} onPress={() => pickMedia('image')}>
+          <Text style={styles.buttonText}>Upload Image</Text>
         </TouchableOpacity>
 
-        {selectedImage && (
-          <Image
-            source={{ uri: selectedImage }}
-            style={styles.imagePreview}
-            resizeMode="contain"
-          />
-        )}
-
-        <View style={styles.filterContainer}>
-          {(['Car', 'Truck', 'Motorbike'] as const).map((vehicle) => (
-            <TouchableOpacity
-              key={vehicle}
-              style={[
-                styles.filterButton,
-                filters[vehicle] && styles.activeFilter,
-              ]}
-              onPress={() => toggleFilter(vehicle)}
-            >
-              <Text
-                style={[
-                  styles.filterText,
-                  filters[vehicle] && styles.activeFilterText,
-                ]}
-              >
-                {vehicle}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <TouchableOpacity
-          style={[styles.detectButton, isDetecting && styles.detecting]}
-          onPress={() => setIsDetecting(!isDetecting)}
-        >
-          <Text style={styles.detectButtonText}>
-            {isDetecting ? '⛔ Stop Detection' : '▶️ Start Detection'}
-          </Text>
+        <TouchableOpacity style={styles.button} onPress={() => pickMedia('video')}>
+          <Text style={styles.buttonText}>Upload Video</Text>
         </TouchableOpacity>
-
-        <Text style={styles.countText}>
-          🚗 Car: {filters.Car ? Math.floor(Math.random() * 10) : 0} | 🚛 Truck: {filters.Truck ? Math.floor(Math.random() * 5) : 0} | 🏍️ Motorbike: {filters.Motorbike ? Math.floor(Math.random() * 7) : 0}
-        </Text>
       </View>
+
+      {selectedMedia && (
+        <Text style={styles.fileName}>
+          Selected: {selectedMedia.name || selectedMedia.uri.split('/').pop()}
+        </Text>
+      )}
+
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: '#00ffff' }]}
+        onPress={sendToBackend}
+        disabled={loading}
+      >
+        <Text style={[styles.buttonText, { color: '#000' }]}>
+          {loading ? 'Processing...' : 'Start Detection'}
+        </Text>
+      </TouchableOpacity>
+
+      {loading && <ActivityIndicator size="large" color="#00ffff" style={{ marginTop: 20 }} />}
+
+      {resultImage && (
+        <>
+          <Image source={{ uri: resultImage }} style={styles.resultImage} resizeMode="contain" />
+          <View style={styles.countBox}>
+            <Text style={styles.countTitle}>Object Count:</Text>
+            {Object.keys(counts).map((cls) => (
+              <Text key={cls} style={styles.countText}>
+                {cls}: {counts[cls]}
+              </Text>
+            ))}
+          </View>
+        </>
+      )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContainer: {
+  container: {
     flexGrow: 1,
-    backgroundColor: '#0e1220',
-    paddingVertical: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  card: {
-    width: '92%',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 20,
+    backgroundColor: '#0a0f1a',
     padding: 20,
-    borderColor: '#00ffe0',
-    borderWidth: 1,
-    shadowColor: '#00ffe0',
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 20,
-    backdropFilter: 'blur(10px)',
+    alignItems: 'center',
   },
   title: {
     fontSize: 26,
+    color: '#00ffff',
+    marginVertical: 20,
     fontWeight: 'bold',
-    color: '#00ffe0',
+  },
+  buttonRow: {
+    flexDirection: 'row',
     marginBottom: 20,
-    textAlign: 'center',
+    gap: 10,
   },
   button: {
-    backgroundColor: '#131c31',
-    paddingVertical: 12,
-    borderRadius: 14,
+    backgroundColor: '#1f2937',
+    padding: 15,
+    borderRadius: 15,
+    borderColor: '#00ffff',
     borderWidth: 1,
-    borderColor: '#00ffe0',
-    alignItems: 'center',
-    marginBottom: 15,
-    elevation: 5,
-    shadowColor: '#00ffff',
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 8,
+    marginHorizontal: 5,
   },
   buttonText: {
     color: '#ffffff',
-    fontSize: 16,
     fontWeight: '600',
+    fontSize: 16,
   },
-  imagePreview: {
+  fileName: {
+    color: '#ffffff',
+    marginVertical: 10,
+    textAlign: 'center',
+  },
+  resultImage: {
     width: '100%',
-    height: 200,
-    marginVertical: 15,
-    borderRadius: 15,
+    height: 300,
+    marginTop: 20,
+    borderRadius: 10,
+    borderColor: '#00ffff',
     borderWidth: 1,
-    borderColor: '#00ffe0',
   },
-  filterContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-evenly',
-    marginTop: 10,
-  },
-  filterButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    margin: 5,
-    borderWidth: 1,
-    borderColor: '#00ffe0',
-    backgroundColor: '#1c2434',
-  },
-  activeFilter: {
-    backgroundColor: '#00ffe0',
-  },
-  filterText: {
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-  activeFilterText: {
-    color: '#000000',
-  },
-  detectButton: {
-    marginTop: 25,
-    backgroundColor: '#131c31',
-    paddingVertical: 14,
-    borderRadius: 16,
+  countBox: {
+    marginTop: 20,
+    backgroundColor: '#1f2937',
+    padding: 15,
+    borderRadius: 10,
+    width: '100%',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#00ffe0',
-    elevation: 6,
-    shadowColor: '#00ffe0',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
   },
-  detecting: {
-    backgroundColor: '#00ffe0',
-  },
-  detectButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
+  countTitle: {
+    color: '#00ffff',
     fontWeight: 'bold',
+    fontSize: 18,
+    marginBottom: 10,
   },
   countText: {
     color: '#ffffff',
-    fontSize: 15,
-    marginTop: 25,
-    textAlign: 'center',
+    fontSize: 16,
   },
 });
