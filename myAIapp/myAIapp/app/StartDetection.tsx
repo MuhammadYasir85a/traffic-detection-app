@@ -1,16 +1,27 @@
-//StartDetection.tsx code
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, ActivityIndicator, ScrollView } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  ActivityIndicator,
+  ScrollView,
+  Modal,
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 
 export default function StartDetection() {
   const [selectedMedia, setSelectedMedia] = useState<any>(null);
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [counts, setCounts] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
-  const BACKEND_URL = "http://192.168.10.7:5000"; // Replace YOUR_IP with your local IP (e.g., 192.168.1.100)
+  const BACKEND_URL = 'http://192.168.10.5:5000';
 
   const pickMedia = async (type: 'image' | 'video') => {
     let result;
@@ -30,19 +41,31 @@ export default function StartDetection() {
       setSelectedMedia(result.assets[0]);
       setResultImage(null);
       setCounts(null);
+      setShowDetails(false);
     }
   };
 
   const sendToBackend = async () => {
     if (!selectedMedia) return;
 
+    if (isDetecting) {
+      // Stop detection
+      setIsDetecting(false);
+      setSelectedMedia(null);
+      setResultImage(null);
+      setCounts(null);
+      setShowDetails(false);
+      return;
+    }
+
+    setIsDetecting(true);
     setLoading(true);
+
     const uri = selectedMedia.uri;
     const fileType = uri.endsWith('.mp4') ? 'video' : 'image';
     const endpoint = fileType === 'image' ? '/detect-image' : '/detect-video';
     const apiUrl = `${BACKEND_URL}${endpoint}`;
 
-    const fileInfo = await FileSystem.getInfoAsync(uri);
     const fileData = {
       uri,
       type: fileType === 'image' ? 'image/jpeg' : 'video/mp4',
@@ -74,6 +97,27 @@ export default function StartDetection() {
     }
   };
 
+  const handleDownload = async () => {
+    if (!resultImage) return;
+
+    try {
+      const fileUri = FileSystem.documentDirectory + 'result.jpg';
+      await FileSystem.writeAsStringAsync(fileUri, resultImage.split(',')[1], {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status === 'granted') {
+        await MediaLibrary.saveToLibraryAsync(fileUri);
+        alert('Downloaded to gallery!');
+      } else {
+        alert('Permission denied to save image.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to download.');
+    }
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Start Detection</Text>
@@ -95,12 +139,15 @@ export default function StartDetection() {
       )}
 
       <TouchableOpacity
-        style={[styles.button, { backgroundColor: '#00ffff' }]}
+        style={[
+          styles.button,
+          { backgroundColor: isDetecting ? '#ff0033' : '#00ffff', marginTop: 10 },
+        ]}
         onPress={sendToBackend}
         disabled={loading}
       >
         <Text style={[styles.buttonText, { color: '#000' }]}>
-          {loading ? 'Processing...' : 'Start Detection'}
+          {isDetecting ? 'Stop Detection' : loading ? 'Processing...' : 'Start Detection'}
         </Text>
       </TouchableOpacity>
 
@@ -108,15 +155,42 @@ export default function StartDetection() {
 
       {resultImage && (
         <>
-          <Image source={{ uri: resultImage }} style={styles.resultImage} resizeMode="contain" />
-          <View style={styles.countBox}>
-            <Text style={styles.countTitle}>Object Count:</Text>
-            {Object.keys(counts).map((cls) => (
-              <Text key={cls} style={styles.countText}>
-                {cls}: {counts[cls]}
-              </Text>
-            ))}
+          <Text style={[styles.countTitle, { marginTop: 20 }]}>Detection Output:</Text>
+          <Image
+            source={{ uri: resultImage }}
+            style={styles.resultImage}
+            resizeMode="contain"
+          />
+
+          <View style={styles.buttonRow}>
+            <TouchableOpacity style={styles.smallButton} onPress={() => setShowDetails(true)}>
+              <Text style={styles.buttonText}>Details</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.smallButton} onPress={handleDownload}>
+              <Text style={styles.buttonText}>Download</Text>
+            </TouchableOpacity>
           </View>
+
+          {/* Details Modal */}
+          <Modal visible={showDetails} animationType="slide" transparent={true}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.countTitle}>Object Count:</Text>
+                {Object.keys(counts).map((cls) => (
+                  <Text key={cls} style={styles.countText}>
+                    {cls}: {counts[cls]}
+                  </Text>
+                ))}
+                <TouchableOpacity
+                  style={[styles.button, { marginTop: 20 }]}
+                  onPress={() => setShowDetails(false)}
+                >
+                  <Text style={styles.buttonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
         </>
       )}
     </ScrollView>
@@ -138,13 +212,22 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: 'row',
-    marginBottom: 20,
+    marginTop: 15,
     gap: 10,
   },
   button: {
     backgroundColor: '#1f2937',
     padding: 15,
     borderRadius: 15,
+    borderColor: '#00ffff',
+    borderWidth: 1,
+    marginHorizontal: 5,
+  },
+  smallButton: {
+    backgroundColor: '#1f2937',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
     borderColor: '#00ffff',
     borderWidth: 1,
     marginHorizontal: 5,
@@ -167,14 +250,6 @@ const styles = StyleSheet.create({
     borderColor: '#00ffff',
     borderWidth: 1,
   },
-  countBox: {
-    marginTop: 20,
-    backgroundColor: '#1f2937',
-    padding: 15,
-    borderRadius: 10,
-    width: '100%',
-    alignItems: 'center',
-  },
   countTitle: {
     color: '#00ffff',
     fontWeight: 'bold',
@@ -184,5 +259,18 @@ const styles = StyleSheet.create({
   countText: {
     color: '#ffffff',
     fontSize: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#1f2937',
+    padding: 20,
+    borderRadius: 15,
+    alignItems: 'center',
+    width: '80%',
   },
 });
