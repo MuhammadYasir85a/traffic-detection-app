@@ -38,63 +38,108 @@ def get_class_color(cls_name):
 
 def display_image_counts(frame, counts):
     """Display counts on static image"""
-    # Create a semi-transparent overlay for better text visibility
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (10, 10), (300, 120), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
     
-    # Display counts
-    y_offset = 40
-    cv2.putText(frame, "VEHICLE COUNT:", (15, 30), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
-    cv2.putText(frame, f'Cars: {counts["Car"]}', (15, y_offset + 20), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-    cv2.putText(frame, f'Trucks: {counts["Truck"]}', (15, y_offset + 45), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-    cv2.putText(frame, f'Motorcycles: {counts["Motorcycle"]}', (15, y_offset + 70), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
     
-    total = sum(counts.values())
-    cv2.putText(frame, f'Total: {total}', (15, y_offset + 95), 
-               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
 def detect_vehicles(frame):
     """
-    Process static image - count all detected objects
-    This function is called by Flask app for single image processing
+    Process static image - count all detected objects,
+    addressing cases where a single object might be classified as multiple types.
     """
     results = model(frame, verbose=False)[0]
     
     # Initialize counts for this image
     count_by_type = {"Car": 0, "Truck": 0, "Motorcycle": 0}
     
-    # Process each detection
+    # Store detected boxes that are relevant
+    valid_detections = [] 
+    
+    # Process each detection from YOLO results
     for box in results.boxes:
         cls = int(box.cls[0])
-        if cls in class_names:
+        conf = float(box.conf[0])
+        
+        # Filter by confidence and relevant classes
+        if conf > 0.4 and cls in class_names:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
-            conf = float(box.conf[0])
             cls_name = class_names[cls]
             
-            # Only count if confidence is above threshold
-            if conf > 0.4:
-                # Count this detection
-                count_by_type[cls_name] += 1
-                
-                # Draw bounding box
-                color = get_class_color(cls_name)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                
-                # Draw class name and confidence
-                label = f'{cls_name}: {conf:.2f}'
-                cv2.putText(frame, label, (x1, y1 - 10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                
-                # Draw center point
-                center = ((x1 + x2) // 2, (y1 + y2) // 2)
-                cv2.circle(frame, center, 4, (255, 0, 0), -1)
+            # Store detection details for later processing to avoid overlaps
+            valid_detections.append({
+                'bbox': (x1, y1, x2, y2),
+                'confidence': conf,
+                'class_id': cls,
+                'class_name': cls_name
+            })
     
+    # Apply a custom Non-Maximum Suppression (NMS) across different classes
+    # to handle cases where a single object gets multiple, overlapping classifications.
+    
+    final_counted_objects = []
+
+    # Sort detections by confidence in descending order
+    valid_detections.sort(key=lambda x: x['confidence'], reverse=True)
+
+    for det1 in valid_detections:
+        x1a, y1a, x2a, y2a = det1['bbox']
+        is_duplicate = False
+        
+        for final_det in final_counted_objects:
+            x1b, y1b, x2b, y2b = final_det['bbox']
+
+            # Calculate Intersection over Union (IoU)
+            xA = max(x1a, x1b)
+            yA = max(y1a, y1b)
+            xB = min(x2a, x2b)
+            yB = min(y2a, y2b)
+
+            inter_area = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+            boxAArea = (x2a - x1a + 1) * (y2a - y1a + 1)
+            boxBArea = (x2b - x1b + 1) * (y2b - y1b + 1)
+            
+            # Avoid division by zero if both areas are zero (shouldn't happen with valid boxes)
+            union_area = float(boxAArea + boxBArea - inter_area)
+            iou = inter_area / union_area if union_area > 0 else 0
+
+            # If IoU is above a threshold, consider them the same physical object.
+            # This is where we prevent double counting across different classes for the same object.
+            # Adjust this threshold (e.g., 0.2 to 0.5) based on how strictly you want to merge.
+            # A value like 0.3-0.4 is a good starting point for merging highly overlapping boxes.
+            if iou > 0.35: # Slightly adjusted threshold for robust merging
+                is_duplicate = True
+                break
+        
+        if not is_duplicate:
+            final_counted_objects.append(det1)
+            count_by_type[det1['class_name']] += 1
+            
+            # Draw bounding box and labels for the selected detection
+            x1, y1, x2, y2 = det1['bbox']
+            cls_name = det1['class_name']
+            conf = det1['confidence']
+            color = get_class_color(cls_name)
+            
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            
+            # Draw class name and confidence
+            label = f'{cls_name}: {conf:.2f}'
+            
+            # Adjust text position to ensure visibility (move up if too close to top, or inside if needed)
+            text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+            text_x = x1
+            text_y = y1 - 10 # Default above the box
+            
+            # If text goes above the frame, place it inside the box near the top
+            if text_y < 10: 
+                text_y = y1 + text_size[1] + 5 # Place inside, slightly below top edge
+            
+            cv2.putText(frame, label, (text_x, text_y), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            
+            # Draw center point
+            center = ((x1 + x2) // 2, (y1 + y2) // 2)
+            cv2.circle(frame, center, 4, (255, 0, 0), -1) # Red center dot
+            
     # Display counts on image
     display_image_counts(frame, count_by_type)
     

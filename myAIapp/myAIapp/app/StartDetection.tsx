@@ -21,7 +21,7 @@ export default function StartDetection() {
   const [isDetecting, setIsDetecting] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
 
-  const BACKEND_URL = 'http://192.168.10.5:5000';
+  const BACKEND_URL = 'http://192.168.100.153:5000';
 
   const pickMedia = async (type: 'image' | 'video') => {
     let result;
@@ -42,6 +42,8 @@ export default function StartDetection() {
       setResultImage(null);
       setCounts(null);
       setShowDetails(false);
+      // Reset isDetecting when new media is selected
+      setIsDetecting(false); 
     }
   };
 
@@ -49,12 +51,14 @@ export default function StartDetection() {
     if (!selectedMedia) return;
 
     if (isDetecting) {
-      // Stop detection
+      // If currently detecting, pressing the button stops it
       setIsDetecting(false);
+      setLoading(false); // Ensure loading is off when stopping
       setSelectedMedia(null);
       setResultImage(null);
       setCounts(null);
       setShowDetails(false);
+      alert('Detection stopped.'); // Optional: provide user feedback
       return;
     }
 
@@ -91,9 +95,11 @@ export default function StartDetection() {
       }
     } catch (err) {
       console.error(err);
-      alert('Error connecting to backend.');
+      alert('Error connecting to backend or during detection.');
     } finally {
+      // This ensures that the detection state is reset after the process completes (or fails)
       setLoading(false);
+      setIsDetecting(false); 
     }
   };
 
@@ -144,7 +150,7 @@ export default function StartDetection() {
           { backgroundColor: isDetecting ? '#ff0033' : '#00ffff', marginTop: 10 },
         ]}
         onPress={sendToBackend}
-        disabled={loading}
+        disabled={loading && !isDetecting} // Disable when loading, unless it's for stopping
       >
         <Text style={[styles.buttonText, { color: '#000' }]}>
           {isDetecting ? 'Stop Detection' : loading ? 'Processing...' : 'Start Detection'}
