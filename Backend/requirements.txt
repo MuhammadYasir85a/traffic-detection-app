@@ -1,6 +1,6 @@
 flask
 gunicorn
-ultralytics
+ultralytics==8.1.0
 opencv-python-headless
 deep_sort_realtime
 numpy
