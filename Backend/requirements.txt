@@ -4,5 +4,5 @@ ultralytics
 opencv-python-headless
 deep_sort_realtime
 numpy
-flask-cors
+flask-cors==3.0.10
 torch<2.6
