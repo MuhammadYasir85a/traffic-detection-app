@@ -4,9 +4,6 @@ import cv2
 from ultralytics import YOLO
 from deep_sort_realtime.deepsort_tracker import DeepSort
 from collections import defaultdict
-from ultralytics.nn.tasks import DetectionModel
-
-torch.serialization.add_safe_globals([DetectionModel])
 # Load YOLOv8 model
 model = YOLO('yolov8n.pt')
 
