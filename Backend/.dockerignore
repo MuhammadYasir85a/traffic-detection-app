@@ -1,0 +1,11 @@
+.git
+.venv/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+node_modules/
+# If your 'myALapp' or '.expo' folders are large and are NOT needed by the backend,
+# and if your Backend/Dockerfile's COPY . . includes parent directories, you might
+# add them here, but typically .dockerignore applies to the build context root.
+# Given your current Dockerfile and Render setup, these might not be needed
