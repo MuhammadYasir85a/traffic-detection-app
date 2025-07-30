@@ -126,12 +126,3 @@ def home():
         }
     })
 
-if __name__ == '__main__':
-    print("Starting Vehicle Detection API...")
-    print("Available endpoints:")
-    print("- POST /detect-image - Upload image for detection")
-    print("- POST /detect-video - Upload video for detection") 
-    print("- GET /health - Health check")
-    print("- GET / - API information")
-    
-    #app.run(host='0.0.0.0', port=5000, debug=True)
